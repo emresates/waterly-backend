@@ -11,6 +11,7 @@ obj/
 # Local secrets – never commit
 .env
 .env.*
+!.env.example
 appsettings.Local.json
 appsettings.*.Local.json
 
