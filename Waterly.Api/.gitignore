@@ -1,0 +1,20 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local secrets – never commit
+.env
+.env.*
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Test results
+TestResults/
+*.trx
+coverage*.xml
