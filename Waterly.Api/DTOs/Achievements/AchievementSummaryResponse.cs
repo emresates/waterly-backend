@@ -15,4 +15,7 @@ public class AchievementSummaryResponse
     public int LegendaryUnlocked { get; init; }
     public int MythicUnlocked { get; init; }
     public int UnseenAchievements { get; init; }
+
+    // Latest local day with activity (session, app open or recorded water). Null before the first evaluation.
+    public DateOnly? LastActiveDate { get; init; }
 }

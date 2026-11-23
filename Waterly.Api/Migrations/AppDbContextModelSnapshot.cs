@@ -1635,6 +1635,36 @@ namespace Waterly.Api.Migrations
                             Name = "Damla Tacı",
                             RequiredAchievementCode = "STREAK_100",
                             RewardType = "MascotAccessory"
+                        },
+                        new
+                        {
+                            Id = 13,
+                            AssetKey = "bottle_classic",
+                            Code = "BOTTLE_CLASSIC",
+                            Description = "Waterly'nin klasik şişe teması.",
+                            Name = "Klasik Şişe",
+                            RequiredLevel = 1,
+                            RewardType = "BottleTheme"
+                        },
+                        new
+                        {
+                            Id = 14,
+                            AssetKey = "bottle_ocean",
+                            Code = "BOTTLE_OCEAN",
+                            Description = "Derin mavi okyanus teması.",
+                            Name = "Okyanus Şişe",
+                            RequiredLevel = 1,
+                            RewardType = "BottleTheme"
+                        },
+                        new
+                        {
+                            Id = 15,
+                            AssetKey = "bottle_mint",
+                            Code = "BOTTLE_MINT",
+                            Description = "Ferah nane yeşili tema.",
+                            Name = "Nane Şişe",
+                            RequiredLevel = 1,
+                            RewardType = "BottleTheme"
                         });
                 });
 
@@ -1755,11 +1785,64 @@ namespace Waterly.Api.Migrations
                     b.ToTable("UserAchievementEvents", (string)null);
                 });
 
+            modelBuilder.Entity("Waterly.Api.Models.UserPreferences", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ActiveBadgeEffectId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ActiveBottleThemeId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ActiveMascotAccessoryId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ActiveProfileFrameId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ActiveWaterAnimationId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ColorScheme")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveBadgeEffectId");
+
+                    b.HasIndex("ActiveBottleThemeId");
+
+                    b.HasIndex("ActiveMascotAccessoryId");
+
+                    b.HasIndex("ActiveProfileFrameId");
+
+                    b.HasIndex("ActiveWaterAnimationId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserPreferences", (string)null);
+                });
+
             modelBuilder.Entity("Waterly.Api.Models.UserProgress", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("LastActiveDate")
+                        .HasColumnType("date");
 
                     b.Property<int>("Level")
                         .HasColumnType("integer");
@@ -1931,6 +2014,42 @@ namespace Waterly.Api.Migrations
                     b.HasOne("Waterly.Api.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Waterly.Api.Models.UserPreferences", b =>
+                {
+                    b.HasOne("Waterly.Api.Models.Reward", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveBadgeEffectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Waterly.Api.Models.Reward", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveBottleThemeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Waterly.Api.Models.Reward", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveMascotAccessoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Waterly.Api.Models.Reward", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveProfileFrameId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Waterly.Api.Models.Reward", null)
+                        .WithMany()
+                        .HasForeignKey("ActiveWaterAnimationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Waterly.Api.Models.User", "User")
+                        .WithOne()
+                        .HasForeignKey("Waterly.Api.Models.UserPreferences", "UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

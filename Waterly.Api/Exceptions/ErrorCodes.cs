@@ -27,5 +27,6 @@ public static class ErrorCodes
     public const string AchievementAlreadyUnlocked = "achievementAlreadyUnlocked";
     public const string RewardNotFound = "rewardNotFound";
     public const string InvalidReward = "invalidReward";
+    public const string RewardLocked = "rewardLocked";
     public const string AchievementEventAlreadyProcessed = "achievementEventAlreadyProcessed";
 }

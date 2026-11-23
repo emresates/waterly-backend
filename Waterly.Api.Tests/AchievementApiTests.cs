@@ -127,7 +127,7 @@ public class AchievementApiTests(DatabaseFixture database) : IDisposable
         Assert.Equal(63.6m, progress.ProgressPercentage);
 
         var rewards = (await WaterlyApiFactory.ReadAsync<List<RewardResponse>>(await client.GetAsync("/api/achievements/me/rewards"))).Data!;
-        Assert.Equal("BOTTLE_SKY_BLUE", Assert.Single(rewards).Code);
+        Assert.Equal(["BOTTLE_CLASSIC", "BOTTLE_MINT", "BOTTLE_OCEAN", "BOTTLE_SKY_BLUE"], rewards.Select(r => r.Code).Order());
     }
 
     [Fact]

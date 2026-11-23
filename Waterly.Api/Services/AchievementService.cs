@@ -31,9 +31,6 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
     // Time-of-day habits (morning / noon / evening / balanced days) only count intakes of at least this size.
     public const int HabitMinimumAmountMl = 100;
 
-    // Limits how many different theme values one user can store.
-    public const int MaxDistinctBottleThemes = 20;
-
     private const int DefaultRecentCount = 10;
     private const int MaxRecentCount = 50;
 
@@ -113,6 +110,10 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
             .Select(ua => new { ua.Achievement.Rarity, ua.SeenAt })
             .ToListAsync(cancellationToken);
         var level = await GetUserProgressAsync(userId, cancellationToken);
+        var lastActiveDate = await db.UserProgress
+            .Where(p => p.UserId == userId)
+            .Select(p => p.LastActiveDate)
+            .FirstOrDefaultAsync(cancellationToken);
 
         int CountRarity(AchievementRarity rarity) => unlocked.Count(u => u.Rarity == rarity);
 
@@ -130,7 +131,8 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
             EpicUnlocked = CountRarity(AchievementRarity.Epic),
             LegendaryUnlocked = CountRarity(AchievementRarity.Legendary),
             MythicUnlocked = CountRarity(AchievementRarity.Mythic),
-            UnseenAchievements = unlocked.Count(u => u.SeenAt is null)
+            UnseenAchievements = unlocked.Count(u => u.SeenAt is null),
+            LastActiveDate = lastActiveDate
         };
     }
 
@@ -186,9 +188,10 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
         var today = DateTimeHelper.GetToday(timeProvider, timeZone);
         var (value, metadata, dedupeKey) = BuildEventDetails(eventType, request.EventValue, today);
 
-        if (eventType == AchievementEventTypes.BottleThemeUsed && !await CanStoreThemeAsync(userId, dedupeKey, cancellationToken))
+        // A theme only counts as "used" if the user really owns it (starter theme or earned reward).
+        if (eventType == AchievementEventTypes.BottleThemeUsed && !await OwnsBottleThemeAsync(userId, value!, cancellationToken))
         {
-            return EventResult(clientEventId, eventType, AchievementEventStatus.AlreadyCounted);
+            throw InvalidEvent("BOTTLE_THEME_USED yalnızca kullanıcının sahip olduğu bir şişe temasının assetKey değeriyle gönderilebilir.");
         }
 
         var stored = await TryInsertEventAsync(new UserAchievementEvent
@@ -340,13 +343,15 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
             .SumAsync(ua => ua.Achievement.XpReward, cancellationToken);
         var level = LevelCalculator.LevelFor(totalXp);
 
-        if (progress.TotalXp != totalXp || progress.Level != level)
+        var lastActiveDate = state.Metrics.LastActiveDate;
+        if (progress.TotalXp != totalXp || progress.Level != level || progress.LastActiveDate != lastActiveDate)
         {
             await db.UserProgress
                 .Where(p => p.UserId == userId)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(p => p.TotalXp, totalXp)
                     .SetProperty(p => p.Level, level)
+                    .SetProperty(p => p.LastActiveDate, lastActiveDate)
                     .SetProperty(p => p.UpdatedAt, now), cancellationToken);
         }
 
@@ -618,14 +623,72 @@ public partial class AchievementService(AppDbContext db, TimeProvider timeProvid
         };
     }
 
-    private async Task<bool> CanStoreThemeAsync(Guid userId, string dedupeKey, CancellationToken cancellationToken)
+    private async Task<bool> OwnsBottleThemeAsync(Guid userId, string assetKey, CancellationToken cancellationToken)
     {
-        var themes = await db.UserAchievementEvents
-            .Where(e => e.UserId == userId && e.EventType == AchievementEventTypes.BottleThemeUsed)
-            .Select(e => e.DedupeKey)
-            .ToListAsync(cancellationToken);
+        var theme = await db.Rewards
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.AssetKey == assetKey && r.RewardType == RewardType.BottleTheme, cancellationToken);
 
-        return themes.Contains(dedupeKey) || themes.Count < MaxDistinctBottleThemes;
+        return theme is not null
+               && (RewardCatalog.IsStarter(theme)
+                   || await db.UserRewards.AnyAsync(ur => ur.UserId == userId && ur.RewardId == theme.Id, cancellationToken));
+    }
+
+    // Called by PreferenceService after the user saved their appearance settings on the server.
+    // These are server-side facts (not client claims), recorded with the same once / per-theme rules as mobile events.
+    public async Task<AchievementEvaluationResponse?> TryRecordPreferenceEventsAsync(Guid userId, bool darkModeEnabled,
+        string? selectedBottleThemeAssetKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var timeZone = await GetTimeZoneAsync(userId, cancellationToken);
+            var today = DateTimeHelper.GetToday(timeProvider, timeZone);
+
+            if (darkModeEnabled)
+            {
+                await RecordServerEventAsync(userId, AchievementEventTypes.DarkThemeEnabled, null, today, cancellationToken);
+            }
+
+            if (selectedBottleThemeAssetKey is not null)
+            {
+                await RecordServerEventAsync(userId, AchievementEventTypes.BottleThemeUsed, selectedBottleThemeAssetKey, today, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Recording preference events failed for user {UserId}.", userId);
+            db.ChangeTracker.Clear();
+        }
+
+        return await TryEvaluateAchievementsAsync(userId, cancellationToken);
+    }
+
+    private async Task RecordServerEventAsync(Guid userId, string eventType, string? rawValue, DateOnly today, CancellationToken cancellationToken)
+    {
+        var (value, metadata, dedupeKey) = BuildEventDetails(eventType, rawValue, today);
+        var alreadyCounted = await db.UserAchievementEvents
+            .AnyAsync(e => e.UserId == userId && e.EventType == eventType && e.DedupeKey == dedupeKey, cancellationToken);
+        if (alreadyCounted)
+        {
+            return;
+        }
+
+        await TryInsertEventAsync(new UserAchievementEvent
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ClientEventId = Guid.NewGuid(),
+            EventType = eventType,
+            EventValue = value,
+            EventMetadata = metadata,
+            DedupeKey = dedupeKey,
+            LocalDate = today,
+            CreatedAt = timeProvider.GetUtcNow()
+        }, cancellationToken);
     }
 
     // Returns false when a unique index (same clientEventId, or same event in the same period) rejected the row.

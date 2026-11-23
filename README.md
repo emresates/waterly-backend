@@ -257,6 +257,8 @@ Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `inva
 | POST | `/api/achievements/me/evaluate` | Tüm başarımları kayıtlı veriden yeniden hesapla (idempotent) |
 | GET | `/api/achievements/me/rewards` | Kazanılan kozmetik ödüller |
 | POST | `/api/achievements/events` | Mobil etkileşim olayı (rate limit'li, idempotent) |
+| GET / PUT | `/api/users/me/preferences` | Görünüm tercihleri: karanlık mod, aktif şişe teması ve kozmetikler |
+| GET | `/api/cosmetics` | Bütün kozmetik ödüller + kilit / aktif durumu. `?type=BottleTheme` |
 
 ---
 
@@ -308,6 +310,8 @@ Toplam **76** başarım. Nadirlik: `Common`, `Rare`, `Epic`, `Legendary`, `Mythi
 | `Rewards` | Kozmetik ödül kataloğu (seed). `Code` unique |
 | `UserRewards` | Açılan ödüller. `(UserId, RewardId)` unique |
 | `UserAchievementEvents` | Mobil olaylar + sunucu oturum kayıtları. `(UserId, ClientEventId)` ve `(UserId, EventType, DedupeKey)` unique |
+| `UserPreferences` | Kullanıcı başına tek satır: `ColorScheme` ve aktif kozmetikler (`Active*Id` → `Rewards`) |
+| `UserProgress.LastActiveDate` | Son aktif yerel gün |
 | `WaterIntakes.Source` | Yeni sütun: `Manual` (varsayılan) / `ReminderNotification` |
 
 Kullanıcı silindiğinde tüm kullanıcıya ait başarım verileri cascade ile silinir; katalog tabloları etkilenmez.
@@ -370,8 +374,24 @@ XP yalnızca sunucuda hesaplanır. İstemci XP, seviye veya başarım kodu gönd
 | `MASCOT_SUNGLASSES` | MascotAccessory | `STREAK_7` |
 | `BADGE_SHINE` | BadgeEffect | `STREAK_30` |
 | `MASCOT_CROWN` | MascotAccessory | `STREAK_100` |
+| `BOTTLE_CLASSIC` | BottleTheme | Başlangıç (herkes, varsayılan tema) |
+| `BOTTLE_OCEAN` | BottleTheme | Başlangıç (herkes) |
+| `BOTTLE_MINT` | BottleTheme | Başlangıç (herkes) |
 
 `AssetKey` (ör. `bottle_sky_blue`) mobil uygulamadaki görsel/animasyon dosyasının adıdır; backend dosya saklamaz.
+
+**Kazanmak ve kullanmak ayrıdır.** Ödül, koşulu sağlanınca `UserRewards` tablosuna yazılır (kazanma). Kullanıcı açtığı ödülü `PUT /api/users/me/preferences` ile seçer; seçim `UserPreferences` tablosunda hesap bazında saklanır (kullanma). Kilitli bir ödül seçilemez (`403 rewardLocked`). Yanlış türde ödül `400 invalidReward`, bilinmeyen kod `404 rewardNotFound` döner. Telefon değişse de aktif tema ve görünüm `GET /api/users/me/preferences` ile geri gelir.
+
+### Son aktif gün ve geri dönüş
+
+`UserProgress.LastActiveDate` her değerlendirmede güncellenir ve `GET /api/achievements/me/summary` içinde `lastActiveDate` olarak döner. Aktif gün; başarılı oturum (kayıt, giriş, günün ilk token yenilemesi), `APP_OPENED` veya o gün kaydedilen su demektir. İki aktif gün arasında en az 14 tam takvim günü boşluk varsa ikinci gün "dönüş" sayılır (`SECRET_RETURN_14_DAYS`). Dönüş günü dahil 3 farklı aktif gün `SECRET_COMEBACK_3_DAYS` kazandırır; aradaki günleri kaçırmak sayımı bozmaz. Hiçbir başarım geri alınmaz.
+
+### Uyumluluk matrisi ve mobil kontrol listesi
+
+- [ACHIEVEMENT_MATRIX.md](ACHIEVEMENT_MATRIX.md): 76 başarımın her biri için gerekli özellik, tetikleyici, backend kaynağı, mobil event, endpoint ve uygulama durumu.
+- [MOBILE_FEATURE_CHECKLIST.md](MOBILE_FEATURE_CHECKLIST.md): Mobilde yapılması gereken ekranlar, etkileşimler ve API kullanımı.
+
+`AchievementFeatureTests.EveryAchievementInTheCatalog_CanActuallyBeUnlocked` testi, katalogdaki 76 başarımın tamamının gerçek servis akışlarıyla açılabildiğini (seviye 100 ve bütün ödüller dahil) doğrular.
 
 ### Mobil olay sözleşmesi
 
@@ -389,13 +409,97 @@ XP yalnızca sunucuda hesaplanır. İstemci XP, seviye veya başarım kodu gönd
 | `WEEKLY_REPORT_OPENED` | – | ISO haftası başına 1 |
 | `CALENDAR_DAY_VIEWED` | opsiyonel, geçmiş gün `yyyy-MM-dd` | Günde 1 |
 | `DARK_THEME_ENABLED`, `BOTTLE_EASTER_EGG_DISCOVERED` | – | 1 kez |
-| `BOTTLE_THEME_USED` | zorunlu tema anahtarı `[a-z0-9_-]{1,32}` | Tema başına 1 (en fazla 20 farklı tema) |
+| `BOTTLE_THEME_USED` | zorunlu: kullanıcının **sahip olduğu** bir şişe temasının `assetKey` değeri (ör. `bottle_ocean`) | Tema başına 1 |
+
+Not: Tema ve karanlık mod için event göndermek zorunlu değildir. `PUT /api/users/me/preferences` ile yapılan seçim sunucuda aynı kurallarla (tema başına 1, karanlık mod 1 kez) kaydedilir ve tercih edilen yoldur.
 
 Yanıttaki `status`: `Recorded` (kaydedildi ve başarımlar değerlendirildi, `gamification` dolu), `AlreadyProcessed` (aynı `clientEventId` daha önce geldi), `AlreadyCounted` (aynı dönem için zaten sayıldı). Üçü de `200` döner. Tanımsız tip, sunucuya özel `SESSION_STARTED` veya izin verilmeyen `eventValue` `400 invalidAchievementEvent` döner. İstemci olayları güvenilir kabul edilmez; yalnızca düşük riskli Discovery / Secret başarımlarında kullanılır. Su başarımları her zaman sunucudaki kayıtlardan hesaplanır.
 
 ### Bildirimden su ekleme
 
 `AddIntakeRequest` (ve sync içindeki öğeler) opsiyonel `source` alanı alır: `"Manual"` (gönderilmezse varsayılan) veya `"ReminderNotification"`. Eski istemciler değişiklik yapmadan çalışır. Idempotency davranışı aynıdır. `IntakeResponse` artık `source` alanını içerir; `IntakeResultResponse` ve `SyncIntakesResponse` yanıtlarında `gamification` alanı (yeni başarımlar, ödüller, seviye) bulunur.
+
+### Mobil entegrasyon sözleşmesi
+
+Bütün endpoint'ler `Authorization: Bearer <accessToken>` ister ve `ApiResponse<T>` döner. Kullanıcı kimliği yalnızca JWT'den alınır. Enum'lar string'dir.
+
+#### Ortak DTO'lar
+
+```jsonc
+// AchievementResponse
+{
+  "id": 41, "code": "GLASSES_100", "name": "Bardak Ustası", "description": "100 bardak eşdeğeri su kaydet.",
+  "category": "GlassCollection", "rarity": "Rare", "xpReward": 250, "iconKey": "glasses_100",
+  "isSecret": false, "isUnlocked": false, "currentValue": 64, "targetValue": 100, "progressPercentage": 64.0,
+  "unlockedAt": null, "seenAt": null
+}
+// Kilitli gizli başarım: code / currentValue / targetValue / progressPercentage = null,
+// name = "Gizli Başarım", iconKey = "secret_locked".
+
+// UserLevelResponse
+{ "level": 13, "totalXp": 800, "currentLevelXp": 720, "nextLevelXp": 845, "xpIntoLevel": 80,
+  "xpToNextLevel": 45, "progressPercentage": 64.0, "maxLevel": 100, "isMaxLevel": false }
+
+// RewardResponse
+{ "id": 1, "code": "BOTTLE_SKY_BLUE", "name": "Gökyüzü Mavisi Şişe", "description": "...", "rewardType": "BottleTheme",
+  "assetKey": "bottle_sky_blue", "requiredLevel": 5, "requiredAchievementCode": null, "unlockedAt": "2026-11-23T10:00:00+00:00" }
+
+// AchievementEvaluationResponse ("gamification" alanı)
+{ "newlyUnlocked": [AchievementResponse], "newRewards": [RewardResponse], "progress": UserLevelResponse,
+  "previousLevel": 4, "leveledUp": true }
+
+// CosmeticItemResponse
+{ "id": 14, "code": "BOTTLE_OCEAN", "name": "Okyanus Şişe", "description": "...", "rewardType": "BottleTheme",
+  "assetKey": "bottle_ocean", "requiredLevel": 1, "requiredAchievementCode": null,
+  "isStarter": true, "isUnlocked": true, "unlockedAt": "...", "isActive": false }
+```
+
+#### Endpoint'ler
+
+| Metot | Yol | Request | Response `data` |
+|---|---|---|---|
+| GET | `/api/achievements` | Query: `category`, `rarity`, `unlocked`, `page` (1), `pageSize` (100, max 100) | `PagedResponse<AchievementResponse>` |
+| GET | `/api/achievements/me` | – | `AchievementResponse[]` (kazanılanlar, en yeni önce) |
+| GET | `/api/achievements/me/summary` | – | `{ totalAchievements, unlockedAchievements, lockedAchievements, completionPercentage, totalXp, level, levelProgressPercentage, commonUnlocked, rareUnlocked, epicUnlocked, legendaryUnlocked, mythicUnlocked, unseenAchievements, lastActiveDate }` |
+| GET | `/api/achievements/me/progress` | – | `UserLevelResponse` |
+| GET | `/api/achievements/me/recent` | Query: `count` (10, max 50) | `AchievementResponse[]` |
+| GET | `/api/achievements/me/unseen` | – | `AchievementResponse[]` (en eski önce) |
+| POST | `/api/achievements/me/seen` | `{ "achievementIds": [2, 3] }` veya `{ "all": true }` | `{ markedCount }` |
+| POST | `/api/achievements/me/evaluate` | – | `AchievementEvaluationResponse` |
+| GET | `/api/achievements/me/rewards` | – | `RewardResponse[]` |
+| POST | `/api/achievements/events` | `{ clientEventId, eventType, eventValue? }` | `{ clientEventId, eventType, status, gamification? }` |
+| GET | `/api/users/me/preferences` | – | `PreferencesResponse` |
+| PUT | `/api/users/me/preferences` | aşağıda | `PreferencesResponse` + `gamification` |
+| GET | `/api/cosmetics` | Query: `type` (opsiyonel `RewardType`) | `CosmeticItemResponse[]` |
+| POST | `/api/hydration/intakes` | mevcut alanlar + opsiyonel `source` | `IntakeResultResponse` (+ `gamification`) |
+| POST | `/api/hydration/intakes/sync` | `{ intakes: [AddIntakeRequest] }` | `SyncIntakesResponse` (+ `gamification`) |
+
+```jsonc
+// PUT /api/users/me/preferences  (tam nesne; null = seçim yok, bottleTheme zorunlu)
+{ "colorScheme": "Dark", "bottleTheme": "BOTTLE_OCEAN", "profileFrame": null,
+  "waterAnimation": "ANIMATION_BUBBLES", "badgeEffect": null, "mascotAccessory": "MASCOT_SUNGLASSES" }
+
+// PreferencesResponse
+{ "colorScheme": "Dark", "bottleTheme": CosmeticItemResponse, "profileFrame": null, "waterAnimation": CosmeticItemResponse,
+  "badgeEffect": null, "mascotAccessory": CosmeticItemResponse, "updatedAt": "...", "gamification": { ... } }
+```
+
+`colorScheme`: `System` | `Light` | `Dark`. `rewardType`: `BottleTheme` | `ProfileFrame` | `WaterAnimation` | `BadgeEffect` | `MascotAccessory`.
+
+#### Event isimleri
+
+`APP_OPENED`, `ONBOARDING_COMPLETED`, `STATISTICS_OPENED`, `HISTORY_OPENED`, `WEEKLY_REPORT_OPENED`, `MONTHLY_REPORT_OPENED`, `CALENDAR_DAY_VIEWED`, `HEALTH_RECOMMENDATION_VIEWED`, `DARK_THEME_ENABLED`, `BOTTLE_THEME_USED`, `BOTTLE_EASTER_EGG_DISCOVERED`. Sayım kuralları yukarıdaki "Mobil olay sözleşmesi" tablosundadır.
+
+#### Hata kodları (başarım / kozmetik)
+
+| HTTP | errorCode | Ne zaman |
+|---|---|---|
+| 400 | `invalidAchievementEvent` | Tanımsız / sunucuya özel event tipi, geçersiz veya sahip olunmayan `eventValue` |
+| 400 | `validationFailed` | Eksik `clientEventId`, boş `seen` isteği, eksik `bottleTheme` / `colorScheme` |
+| 400 | `invalidReward` | Seçilen ödül o alanın türünde değil (ör. çerçeveyi şişe teması olarak seçmek) |
+| 403 | `rewardLocked` | Henüz kazanılmamış kozmetik seçildi |
+| 404 | `rewardNotFound` | Bilinmeyen ödül kodu |
+| 429 | `tooManyRequests` | Event limiti aşıldı |
 
 ## React Native entegrasyon notları
 

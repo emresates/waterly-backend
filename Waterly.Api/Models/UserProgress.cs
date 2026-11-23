@@ -8,6 +8,9 @@ public class UserProgress
     public Guid UserId { get; set; }
     public int TotalXp { get; set; }
     public int Level { get; set; } = 1;
+
+    // Latest local day with a session, an app open or recorded water. Updated on every evaluation.
+    public DateOnly? LastActiveDate { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
     public User User { get; set; } = null!;

@@ -31,4 +31,8 @@ public interface IAchievementService
 
     // Records a successful session (once per local day) and evaluates achievements. Never throws.
     Task TryRecordSessionAsync(Guid userId, bool alwaysEvaluate, CancellationToken cancellationToken);
+
+    // Records dark mode / bottle theme usage after the preferences were saved on the server, then evaluates. Never throws.
+    Task<AchievementEvaluationResponse?> TryRecordPreferenceEventsAsync(Guid userId, bool darkModeEnabled,
+        string? selectedBottleThemeAssetKey, CancellationToken cancellationToken);
 }

@@ -55,6 +55,9 @@ public sealed class AchievementMetrics
     // Shown as progress for locked streak achievements. Unlocking uses the longest streak.
     public long CurrentStreak { get; set; }
 
+    // Latest active local day (session, app open or recorded water). Stored on UserProgress.
+    public DateOnly? LastActiveDate { get; set; }
+
     public long this[AchievementMetric metric]
     {
         get => _values.GetValueOrDefault(metric);
@@ -247,6 +250,7 @@ public static class AchievementMetricsCalculator
         }
 
         metrics[AchievementMetric.ActiveDays] = activeDays.Count;
+        metrics.LastActiveDate = activeDays.Count > 0 ? activeDays.Max : null;
         metrics[AchievementMetric.LongestInactiveGapDays] = longestGap;
         metrics[AchievementMetric.ComebackActiveDays] = bestComeback;
     }

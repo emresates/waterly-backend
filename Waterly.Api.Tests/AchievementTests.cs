@@ -395,11 +395,11 @@ public class AchievementTests(DatabaseFixture database)
         }
 
         // The same theme never counts twice, whatever its casing.
-        Assert.Equal(AchievementEventStatus.Recorded, (await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "ocean")).Status);
-        Assert.Equal(AchievementEventStatus.AlreadyCounted, (await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "OCEAN")).Status);
-        await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "mint");
+        Assert.Equal(AchievementEventStatus.Recorded, (await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "bottle_ocean")).Status);
+        Assert.Equal(AchievementEventStatus.AlreadyCounted, (await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "BOTTLE_OCEAN")).Status);
+        await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "bottle_mint");
         Assert.DoesNotContain("SECRET_THEMES_3", (await UnlockedCodesAsync(context, userId)).ToHashSet());
-        await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "sunset");
+        await RecordAsync(context, userId, AchievementEventTypes.BottleThemeUsed, "bottle_classic");
         Assert.Contains("SECRET_THEMES_3", (await UnlockedCodesAsync(context, userId)).ToHashSet());
 
         await AssertXpIsConsistentAsync(context, userId);
@@ -410,6 +410,8 @@ public class AchievementTests(DatabaseFixture database)
     [InlineData("GIVE_ME_XP", null)]
     [InlineData("BOTTLE_THEME_USED", null)]        // theme required
     [InlineData("BOTTLE_THEME_USED", "<script>")]
+    [InlineData("BOTTLE_THEME_USED", "bottle_gold")]   // exists, but not earned yet
+    [InlineData("BOTTLE_THEME_USED", "my_custom_theme")] // not a real theme
     [InlineData("STATISTICS_OPENED", "extra")]     // no value allowed
     [InlineData("CALENDAR_DAY_VIEWED", "2026-11-23")] // must be a past day
     [InlineData("CALENDAR_DAY_VIEWED", "yesterday")]
@@ -538,10 +540,12 @@ public class AchievementTests(DatabaseFixture database)
         Assert.Equal("bottle_sky_blue", result.Gamification.NewRewards[0].AssetKey);
 
         Assert.Empty((await context.Achievements.EvaluateAchievementsAsync(userId, CancellationToken.None)).NewRewards);
-        Assert.Equal(["BOTTLE_SKY_BLUE"], await RewardCodesAsync(context, userId));
+        // Starter themes (level 1) were already granted at registration.
+        Assert.Equal(["BOTTLE_SKY_BLUE", "BOTTLE_CLASSIC", "BOTTLE_OCEAN", "BOTTLE_MINT"], await RewardCodesAsync(context, userId));
 
         var rewards = await context.Achievements.GetUserRewardsAsync(userId, CancellationToken.None);
-        Assert.Equal(RewardType.BottleTheme, Assert.Single(rewards).RewardType);
+        Assert.Equal(4, rewards.Count);
+        Assert.All(rewards, r => Assert.Equal(RewardType.BottleTheme, r.RewardType));
     }
 
     // ------------------------------------------------------------------ existing users, isolation, concurrency

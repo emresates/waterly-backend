@@ -22,8 +22,19 @@ public static class RewardCatalog
         // Achievement rewards
         ForAchievement(10, "MASCOT_SUNGLASSES", "Damla Gözlüğü", "Maskot için güneş gözlüğü.", RewardType.MascotAccessory, "STREAK_7"),
         ForAchievement(11, "BADGE_SHINE", "Rozet Parıltısı", "Rozetlerine parıltı efekti.", RewardType.BadgeEffect, "STREAK_30"),
-        ForAchievement(12, "MASCOT_CROWN", "Damla Tacı", "Maskot için taç.", RewardType.MascotAccessory, "STREAK_100")
+        ForAchievement(12, "MASCOT_CROWN", "Damla Tacı", "Maskot için taç.", RewardType.MascotAccessory, "STREAK_100"),
+
+        // Starter bottle themes: level 1, so every user owns them from the first evaluation (registration).
+        Level(13, DefaultBottleThemeCode, "Klasik Şişe", "Waterly'nin klasik şişe teması.", RewardType.BottleTheme, 1),
+        Level(14, "BOTTLE_OCEAN", "Okyanus Şişe", "Derin mavi okyanus teması.", RewardType.BottleTheme, 1),
+        Level(15, "BOTTLE_MINT", "Nane Şişe", "Ferah nane yeşili tema.", RewardType.BottleTheme, 1)
     ];
+
+    // Used when the user has never picked a theme.
+    public const string DefaultBottleThemeCode = "BOTTLE_CLASSIC";
+
+    // Starter rewards are free for everyone, even before the first evaluation has stored them in UserRewards.
+    public static bool IsStarter(Reward reward) => reward.RequiredLevel is <= 1 && reward.RequiredAchievementCode is null;
 
     private static Reward Level(int id, string code, string name, string description, RewardType type, int requiredLevel) => new()
     {

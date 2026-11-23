@@ -19,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Reward> Rewards => Set<Reward>();
     public DbSet<UserReward> UserRewards => Set<UserReward>();
     public DbSet<UserAchievementEvent> UserAchievementEvents => Set<UserAchievementEvent>();
+    public DbSet<UserPreferences> UserPreferences => Set<UserPreferences>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +36,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         ConfigureReward(modelBuilder);
         ConfigureUserReward(modelBuilder);
         ConfigureUserAchievementEvent(modelBuilder);
+        ConfigureUserPreferences(modelBuilder);
     }
 
     // DateTimeOffset -> "timestamp with time zone" (always UTC)
@@ -231,9 +233,32 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(p => p.Id);
 
             entity.Property(p => p.UpdatedAt).HasColumnType("timestamp with time zone");
+            entity.Property(p => p.LastActiveDate).HasColumnType("date");
 
             entity.HasIndex(p => p.UserId).IsUnique();
             entity.HasOne(p => p.User).WithOne().HasForeignKey<UserProgress>(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserPreferences(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserPreferences>(entity =>
+        {
+            entity.ToTable("UserPreferences");
+            entity.HasKey(p => p.Id);
+
+            entity.Property(p => p.ColorScheme).HasConversion<string>().HasMaxLength(16);
+            entity.Property(p => p.UpdatedAt).HasColumnType("timestamp with time zone");
+
+            entity.HasIndex(p => p.UserId).IsUnique();
+            entity.HasOne(p => p.User).WithOne().HasForeignKey<UserPreferences>(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+
+            // Selected cosmetics must be real rewards. Ownership and the reward type are checked in PreferenceService.
+            entity.HasOne<Reward>().WithMany().HasForeignKey(p => p.ActiveBottleThemeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Reward>().WithMany().HasForeignKey(p => p.ActiveProfileFrameId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Reward>().WithMany().HasForeignKey(p => p.ActiveWaterAnimationId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Reward>().WithMany().HasForeignKey(p => p.ActiveBadgeEffectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Reward>().WithMany().HasForeignKey(p => p.ActiveMascotAccessoryId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

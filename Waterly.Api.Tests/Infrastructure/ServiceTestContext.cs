@@ -23,6 +23,7 @@ public sealed class ServiceTestContext : IAsyncDisposable
     public HealthService Health { get; }
     public ReminderService Reminders { get; }
     public AchievementService Achievements { get; }
+    public PreferenceService Preferences { get; }
 
     public ServiceTestContext(DatabaseFixture database, DateTimeOffset now)
     {
@@ -45,6 +46,7 @@ public sealed class ServiceTestContext : IAsyncDisposable
         Statistics = new StatisticsService(Db, Hydration, Goals, Users, Clock);
         Health = new HealthService(Db, Goals, Users, Achievements, Clock);
         Reminders = new ReminderService(Db, Users, Achievements, Clock);
+        Preferences = new PreferenceService(Db, Achievements, Clock);
     }
 
     // Adds water "as it happens": moves the clock to the moment of drinking first, so the intake is not back-dated.

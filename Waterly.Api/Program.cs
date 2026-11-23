@@ -65,6 +65,7 @@ builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IStatisticsService, StatisticsService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
 builder.Services.AddScoped<IAchievementService, AchievementService>();
+builder.Services.AddScoped<IPreferenceService, PreferenceService>();
 
 // ---------------------------------------------------------------------------
 // Controllers, JSON and validation responses
