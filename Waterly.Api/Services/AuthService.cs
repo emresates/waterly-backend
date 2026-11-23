@@ -16,6 +16,7 @@ public class AuthService(
     ITokenService tokenService,
     IPasswordHasher<User> passwordHasher,
     IOptions<JwtSettings> jwtOptions,
+    IAchievementService achievementService,
     TimeProvider timeProvider,
     ILogger<AuthService> logger) : IAuthService
 {
@@ -71,6 +72,9 @@ public class AuthService(
             throw EmailAlreadyExists();
         }
 
+        // First successful session: "Su Dünyasına Hoş Geldin". Never blocks registration.
+        await achievementService.TryRecordSessionAsync(user.Id, alwaysEvaluate: true, cancellationToken);
+
         return BuildAuthResponse(user, refreshToken.PlainToken, refreshToken.Entity.ExpiresAt);
     }
 
@@ -101,6 +105,10 @@ public class AuthService(
 
         var refreshToken = AddNewRefreshToken(user.Id, now);
         await db.SaveChangesAsync(cancellationToken);
+
+        // Marks today as an active day and evaluates achievements. This is also where users who registered
+        // before the achievement system existed get their earned achievements calculated from their history.
+        await achievementService.TryRecordSessionAsync(user.Id, alwaysEvaluate: true, cancellationToken);
 
         return BuildAuthResponse(user, refreshToken.PlainToken, refreshToken.Entity.ExpiresAt);
     }
@@ -158,6 +166,9 @@ public class AuthService(
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // A refresh means the app is in use. Recorded at most once per local day; evaluates only when the day is new.
+        await achievementService.TryRecordSessionAsync(storedToken.UserId, alwaysEvaluate: false, cancellationToken);
 
         return BuildAuthResponse(storedToken.User, newRefreshToken.PlainToken, newRefreshToken.Entity.ExpiresAt);
     }

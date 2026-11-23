@@ -11,7 +11,7 @@ namespace Waterly.Api.Services;
 
 // The backend only stores reminder preferences. The phone schedules local notifications itself,
 // so there is no background job or push server here.
-public class ReminderService(AppDbContext db, IUserService userService, TimeProvider timeProvider) : IReminderService
+public class ReminderService(AppDbContext db, IUserService userService, IAchievementService achievementService, TimeProvider timeProvider) : IReminderService
 {
     public async Task<ReminderSettingsResponse> GetSettingsAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -47,7 +47,12 @@ public class ReminderService(AppDbContext db, IUserService userService, TimeProv
         settings.UpdatedAt = timeProvider.GetUtcNow();
 
         await db.SaveChangesAsync(cancellationToken);
-        return ToResponse(settings);
+        var response = ToResponse(settings);
+
+        // Reminder / glass size achievements. The settings are already saved either way.
+        await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
+
+        return response;
     }
 
     public static ReminderSettings CreateDefaultSettings(Guid userId, string timeZone, DateTimeOffset now) => new()

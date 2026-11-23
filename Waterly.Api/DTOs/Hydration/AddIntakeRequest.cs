@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Waterly.Api.Models;
 
 namespace Waterly.Api.DTOs.Hydration;
 
@@ -19,4 +20,7 @@ public class AddIntakeRequest
     // If omitted the user's profile time zone is used.
     [StringLength(64)]
     public string? TimeZone { get; set; }
+
+    // Optional: "Manual" (default when omitted) or "ReminderNotification" for the "I drank" action on a reminder.
+    public IntakeSource? Source { get; set; }
 }

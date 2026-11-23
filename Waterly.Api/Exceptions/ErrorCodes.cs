@@ -20,4 +20,12 @@ public static class ErrorCodes
     public const string ValidationFailed = "validationFailed";
     public const string TooManyRequests = "tooManyRequests";
     public const string InternalServerError = "internalServerError";
+
+    // Achievement system
+    public const string AchievementNotFound = "achievementNotFound";
+    public const string InvalidAchievementEvent = "invalidAchievementEvent";
+    public const string AchievementAlreadyUnlocked = "achievementAlreadyUnlocked";
+    public const string RewardNotFound = "rewardNotFound";
+    public const string InvalidReward = "invalidReward";
+    public const string AchievementEventAlreadyProcessed = "achievementEventAlreadyProcessed";
 }

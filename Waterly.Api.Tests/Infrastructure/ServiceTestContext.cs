@@ -21,6 +21,8 @@ public sealed class ServiceTestContext : IAsyncDisposable
     public HydrationService Hydration { get; }
     public StatisticsService Statistics { get; }
     public HealthService Health { get; }
+    public ReminderService Reminders { get; }
+    public AchievementService Achievements { get; }
 
     public ServiceTestContext(DatabaseFixture database, DateTimeOffset now)
     {
@@ -35,12 +37,26 @@ public sealed class ServiceTestContext : IAsyncDisposable
         });
         var passwordHasher = new PasswordHasher<User>();
 
+        Achievements = new AchievementService(Db, Clock, NullLogger<AchievementService>.Instance);
         Users = new UserService(Db, passwordHasher, Clock);
-        Auth = new AuthService(Db, new TokenService(jwtOptions, Clock), passwordHasher, jwtOptions, Clock, NullLogger<AuthService>.Instance);
-        Goals = new GoalService(Db, Users, Clock);
-        Hydration = new HydrationService(Db, Goals, Users, Clock);
+        Auth = new AuthService(Db, new TokenService(jwtOptions, Clock), passwordHasher, jwtOptions, Achievements, Clock, NullLogger<AuthService>.Instance);
+        Goals = new GoalService(Db, Users, Achievements, Clock);
+        Hydration = new HydrationService(Db, Goals, Users, Achievements, Clock);
         Statistics = new StatisticsService(Db, Hydration, Goals, Users, Clock);
-        Health = new HealthService(Db, Goals, Users, Clock);
+        Health = new HealthService(Db, Goals, Users, Achievements, Clock);
+        Reminders = new ReminderService(Db, Users, Achievements, Clock);
+    }
+
+    // Adds water "as it happens": moves the clock to the moment of drinking first, so the intake is not back-dated.
+    public Task<IntakeResultResponse> DrinkAtAsync(Guid userId, int amountMl, DateTimeOffset moment, IntakeSource? source = null)
+    {
+        Clock.Now = moment;
+        return Hydration.AddIntakeAsync(userId, new AddIntakeRequest
+        {
+            AmountMl = amountMl,
+            ClientEventId = Guid.NewGuid(),
+            Source = source
+        }, CancellationToken.None);
     }
 
     public async Task<Guid> RegisterUserAsync(string timeZone = "Europe/Istanbul")

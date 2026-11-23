@@ -26,6 +26,7 @@ public sealed class WaterlyApiFactory(DatabaseFixture database) : WebApplication
         builder.UseSetting("Jwt:SigningKey", "integration-test-signing-key-0123456789abcdef");
         builder.UseSetting("RateLimiting:AuthPermitLimitPerMinute", "10000");
         builder.UseSetting("RateLimiting:GeneralPermitLimitPerMinute", "10000");
+        builder.UseSetting("RateLimiting:AchievementEventsPermitLimitPerMinute", "10000");
     }
 
     public async Task<AuthResponse> RegisterAsync(HttpClient client)

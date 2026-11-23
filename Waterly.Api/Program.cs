@@ -43,6 +43,7 @@ builder.Services.Configure<JwtSettings>(jwtSection);
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 var authPermitLimit = builder.Configuration.GetValue("RateLimiting:AuthPermitLimitPerMinute", 10);
 var generalPermitLimit = builder.Configuration.GetValue("RateLimiting:GeneralPermitLimitPerMinute", 120);
+var achievementEventPermitLimit = builder.Configuration.GetValue("RateLimiting:AchievementEventsPermitLimitPerMinute", 30);
 
 // ---------------------------------------------------------------------------
 // Database
@@ -63,6 +64,7 @@ builder.Services.AddScoped<IHydrationService, HydrationService>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IStatisticsService, StatisticsService>();
 builder.Services.AddScoped<IHealthService, HealthService>();
+builder.Services.AddScoped<IAchievementService, AchievementService>();
 
 // ---------------------------------------------------------------------------
 // Controllers, JSON and validation responses
@@ -147,6 +149,12 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = authPermitLimit, Window = TimeSpan.FromMinutes(1) }));
+
+    // Achievement events: limited per signed-in user, so a client cannot flood the event table.
+    options.AddPolicy(RateLimitPolicies.AchievementEvents, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = achievementEventPermitLimit, Window = TimeSpan.FromMinutes(1) }));
 
     // Every request: limited per signed-in user (or per IP address for anonymous requests).
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>

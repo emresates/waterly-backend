@@ -14,6 +14,7 @@ public class HealthService(
     AppDbContext db,
     IGoalService goalService,
     IUserService userService,
+    IAchievementService achievementService,
     TimeProvider timeProvider) : IHealthService
 {
     private const int MaxDaysBack = 365;
@@ -58,6 +59,9 @@ public class HealthService(
             db.ChangeTracker.Clear();
             await UpsertDaysAsync(userId, source, days, cancellationToken);
         }
+
+        // "Sağlık Bağlantısı" is earned with the first real Apple Health / Health Connect data.
+        await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
 
         var dates = days.Select(d => d.Date!.Value).ToList();
         return await db.DailyActivities

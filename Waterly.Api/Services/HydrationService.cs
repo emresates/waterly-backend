@@ -13,6 +13,7 @@ public class HydrationService(
     AppDbContext db,
     IGoalService goalService,
     IUserService userService,
+    IAchievementService achievementService,
     TimeProvider timeProvider) : IHydrationService
 {
     public const int MinAmountMl = 10;
@@ -45,12 +46,18 @@ public class HydrationService(
     {
         var userTimeZone = await userService.GetTimeZoneAsync(userId, cancellationToken);
         var (intake, alreadyProcessed) = await SaveIntakeAsync(userId, userTimeZone, request, cancellationToken);
+        var progress = await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken);
+
+        // The water is already saved. The achievement check is idempotent and never throws, so a retry of the same
+        // clientEventId cannot add XP twice, and it still completes anything a previous failed check missed.
+        var gamification = await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
 
         return new IntakeResultResponse
         {
             Intake = ToResponse(intake),
-            Progress = await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken),
-            AlreadyProcessed = alreadyProcessed
+            Progress = progress,
+            AlreadyProcessed = alreadyProcessed,
+            Gamification = gamification
         };
     }
 
@@ -86,6 +93,10 @@ public class HydrationService(
         }
 
         var today = DateTimeHelper.GetToday(timeProvider, userTimeZone);
+        var todayProgress = await goalService.GetProgressForDateAsync(userId, today, cancellationToken);
+
+        // One evaluation for the whole batch instead of one per item.
+        var gamification = await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
 
         return new SyncIntakesResponse
         {
@@ -93,7 +104,8 @@ public class HydrationService(
             AlreadyProcessedCount = results.Count(r => r.Status == SyncItemStatus.AlreadyProcessed),
             FailedCount = results.Count(r => r.Status == SyncItemStatus.Failed),
             Results = results,
-            Today = await goalService.GetProgressForDateAsync(userId, today, cancellationToken)
+            Today = todayProgress,
+            Gamification = gamification
         };
     }
 
@@ -137,12 +149,17 @@ public class HydrationService(
         intake.UpdatedAt = now;
 
         await db.SaveChangesAsync(cancellationToken);
+        var progress = await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken);
+
+        // Progress is recalculated from the stored data. Already earned badges are never taken back.
+        var gamification = await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
 
         return new IntakeResultResponse
         {
             Intake = ToResponse(intake),
-            Progress = await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken),
-            AlreadyProcessed = false
+            Progress = progress,
+            AlreadyProcessed = false,
+            Gamification = gamification
         };
     }
 
@@ -152,8 +169,12 @@ public class HydrationService(
 
         db.WaterIntakes.Remove(intake);
         await db.SaveChangesAsync(cancellationToken);
+        var progress = await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken);
 
-        return await goalService.GetProgressForDateAsync(userId, intake.LocalDate, cancellationToken);
+        // Earned badges stay. Deleting and re-adding water cannot earn XP again because every achievement is one-time.
+        await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
+
+        return progress;
     }
 
     public async Task<PagedResponse<DailyProgressResponse>> GetHistoryAsync(Guid userId, DateRangeQuery query, CancellationToken cancellationToken)
@@ -244,12 +265,18 @@ public class HydrationService(
         EnsureValidAmount(request.AmountMl);
         var consumedAt = EnsureValidConsumedAt(request.ConsumedAt ?? now, now);
         var timeZone = ResolveTimeZone(request.TimeZone, userTimeZone);
+        var source = request.Source ?? IntakeSource.Manual;
+        if (!Enum.IsDefined(source))
+        {
+            throw AppException.BadRequest(ErrorCodes.ValidationFailed, "Geçersiz kayıt kaynağı. Manual veya ReminderNotification olmalıdır.");
+        }
 
         var intake = new WaterIntake
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             ClientEventId = clientEventId,
+            Source = source,
             AmountMl = request.AmountMl,
             ConsumedAt = consumedAt,
             TimeZone = timeZone,
@@ -339,6 +366,7 @@ public class HydrationService(
         LocalDate = intake.LocalDate,
         LocalTime = DateTimeHelper.ToLocalTime(intake.ConsumedAt, intake.TimeZone).ToString("HH:mm"),
         TimeZone = intake.TimeZone,
+        Source = intake.Source,
         CreatedAt = intake.CreatedAt,
         UpdatedAt = intake.UpdatedAt
     };

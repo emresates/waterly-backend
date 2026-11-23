@@ -1,3 +1,5 @@
+using Waterly.Api.DTOs.Achievements;
+
 namespace Waterly.Api.DTOs.Hydration;
 
 public enum SyncItemStatus
@@ -25,4 +27,7 @@ public class SyncIntakesResponse
 
     // Progress of today after the sync, so the app can refresh its main screen at once.
     public DailyProgressResponse Today { get; init; } = null!;
+
+    // Achievements earned by the whole sync, evaluated once at the end.
+    public AchievementEvaluationResponse? Gamification { get; init; }
 }

@@ -13,7 +13,7 @@ namespace Waterly.Api.Services;
 // Each change inserts a new HydrationGoal row with EffectiveFrom = the user's local "today".
 // The goal of any day D is the newest row whose EffectiveFrom <= D.
 // So changing the goal today never changes the result of yesterday.
-public class GoalService(AppDbContext db, IUserService userService, TimeProvider timeProvider) : IGoalService
+public class GoalService(AppDbContext db, IUserService userService, IAchievementService achievementService, TimeProvider timeProvider) : IGoalService
 {
     // A general starting point only, not a medical recommendation. Users can change it at any time.
     public const int DefaultTargetMl = 2000;
@@ -44,6 +44,9 @@ public class GoalService(AppDbContext db, IUserService userService, TimeProvider
             CreatedAt = timeProvider.GetUtcNow()
         });
         await db.SaveChangesAsync(cancellationToken);
+
+        // "Kendi Yolum" and, with a lower goal, today's goal achievements. Past days keep their own goal.
+        await achievementService.TryEvaluateAchievementsAsync(userId, cancellationToken);
 
         return await GetCurrentGoalAsync(userId, cancellationToken);
     }

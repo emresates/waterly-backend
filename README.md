@@ -221,7 +221,7 @@ Validation hatalarında ek olarak alan bazlı `errors` döner:
   "errors": { "email": ["Geçerli bir e-posta adresi girin."] }, "data": null }
 ```
 
-Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `invalidToken`, `unauthorized`, `forbidden`, `intakeNotFound`, `invalidWaterAmount`, `invalidConsumedAt`, `invalidTimeZone`, `invalidDateRange`, `invalidReminderSettings`, `goalNotFound`, `validationFailed`, `tooManyRequests`, `internalServerError`.
+Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `invalidToken`, `unauthorized`, `forbidden`, `intakeNotFound`, `invalidWaterAmount`, `invalidConsumedAt`, `invalidTimeZone`, `invalidDateRange`, `invalidReminderSettings`, `goalNotFound`, `validationFailed`, `tooManyRequests`, `internalServerError`, `invalidAchievementEvent`. Başarım sistemi için ayrıca `achievementNotFound`, `achievementAlreadyUnlocked`, `rewardNotFound`, `invalidReward`, `achievementEventAlreadyProcessed` sabitleri tanımlıdır; tekrar gönderimler hata değil, başarılı yanıt olarak döner.
 
 | Metot | Yol | Açıklama |
 |---|---|---|
@@ -247,6 +247,16 @@ Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `inva
 | POST / GET | `/api/health/activity` | Günlük aktivite özetleri gönder / listele |
 | GET | `/api/health/recommendation` | `?date` — aktivite bazlı, otomatik değişiklik yapmayan öneri |
 | GET | `/health` | Sunucu ve veritabanı durumu (auth gerekmez) |
+| GET | `/api/achievements` | Tüm başarımlar + ilerleme. `?category&rarity&unlocked&page&pageSize` |
+| GET | `/api/achievements/me` | Kazanılan başarımlar |
+| GET | `/api/achievements/me/summary` | Sayılar, XP, seviye, nadirlik dağılımı |
+| GET | `/api/achievements/me/progress` | Seviye çubuğu için XP / seviye bilgisi |
+| GET | `/api/achievements/me/recent` | Son kazanılanlar `?count=10` |
+| GET | `/api/achievements/me/unseen` | Animasyonu henüz gösterilmemiş kazanımlar |
+| POST | `/api/achievements/me/seen` | `{ achievementIds: [..] }` veya `{ all: true }` |
+| POST | `/api/achievements/me/evaluate` | Tüm başarımları kayıtlı veriden yeniden hesapla (idempotent) |
+| GET | `/api/achievements/me/rewards` | Kazanılan kozmetik ödüller |
+| POST | `/api/achievements/events` | Mobil etkileşim olayı (rate limit'li, idempotent) |
 
 ---
 
@@ -269,6 +279,123 @@ Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `inva
 **Hatırlatmalar.** Backend yalnızca ayarları saklar. Push sunucusu, BackgroundService veya Hangfire yoktur. Yanıttaki `dailyReminderTimes` (örn. `["09:00","11:00",...]`) mobil tarafın yerel bildirimleri planlamasını kolaylaştırır. Gece yarısını geçen aralıklar (22:00–02:00) desteklenir.
 
 ---
+
+## Başarım Sistemi (Achievement, XP, Level, Reward)
+
+Kullanıcı su içtikçe ve uygulamayı kullandıkça başarımlar, XP, seviye ve kozmetik ödüller kazanır. Her şey PostgreSQL'de saklanır; telefon değişse de kaybolmaz. Kod: `Services/AchievementService.cs`, `Helpers/AchievementMetricsCalculator.cs`, `Helpers/LevelCalculator.cs`, `Data/AchievementCatalog.cs`, `Data/RewardCatalog.cs`.
+
+### Kategoriler ve nadirlik
+
+| Kategori | Adet | İçerik |
+|---|---|---|
+| `GettingStarted` | 10 | İlk oturum, ilk su, kayıt günü hedefleri, ilk hedef, ayarlar, 7 aktif gün |
+| `Streak` | 14 | 2–365 günlük seri, ikinci şans, toplam 30/100/365 hedef günü |
+| `WaterVolume` | 12 | Toplam 1 L – 10.000 L (günlük hedefle sınırlı) |
+| `GlassCollection` | 10 | 1–5000 bardak eşdeğeri (250 ml) |
+| `DailyHabits` | 10 | Sabah / öğle / akşam, dengeli gün, bildirimden su ekleme |
+| `Discovery` | 10 | Ekran keşifleri, kişiselleştirme, sağlık bağlantısı |
+| `Secret` | 10 | Kilitliyken adı, açıklaması, kodu ve ilerlemesi gizlenen başarımlar |
+
+Toplam **76** başarım. Nadirlik: `Common`, `Rare`, `Epic`, `Legendary`, `Mythic`. Enum'lar JSON'da string döner (`"category": "Streak"`).
+
+### Tablolar
+
+| Tablo | Açıklama |
+|---|---|
+| `Achievements` | Katalog (seed). `Code` unique, sabit `Id` |
+| `UserAchievements` | Kazanımlar. `(UserId, AchievementId)` unique, `SeenAt` animasyon durumu |
+| `UserProgress` | Kullanıcı başına tek satır: `TotalXp`, `Level` |
+| `Rewards` | Kozmetik ödül kataloğu (seed). `Code` unique |
+| `UserRewards` | Açılan ödüller. `(UserId, RewardId)` unique |
+| `UserAchievementEvents` | Mobil olaylar + sunucu oturum kayıtları. `(UserId, ClientEventId)` ve `(UserId, EventType, DedupeKey)` unique |
+| `WaterIntakes.Source` | Yeni sütun: `Manual` (varsayılan) / `ReminderNotification` |
+
+Kullanıcı silindiğinde tüm kullanıcıya ait başarım verileri cascade ile silinir; katalog tabloları etkilenmez.
+
+### Seed mekanizması
+
+Başarımlar ve ödüller `Data/AchievementCatalog.cs` ve `Data/RewardCatalog.cs` içinde C# olarak tanımlıdır ve `HasData` ile `AddAchievementSystem` migration'ına sabit id'lerle yazılmıştır. Migration tekrar çalıştırıldığında yeni satır oluşmaz. Kurallar:
+
+- `Id` ve `Code` kalıcıdır; değiştirilmez, tekrar kullanılmaz. Yeni başarım listenin sonuna yeni id ile eklenir ve `dotnet ef migrations add ...` ile yeni migration oluşturulur.
+- Kaldırılacak başarım silinmez, `IsActive = false` yapılır; kazananlar kaybetmez.
+- `Name` / `Description` Türkçe varsayılandır. Çeviri eklenirken `Code` anahtar olarak kullanılabilir (ör. `achievements.FIRST_DROP.name`) veya `(AchievementId, Culture)` anahtarlı ayrı bir çeviri tablosu eklenebilir.
+
+### Hesaplama mantığı
+
+`AchievementService.EvaluateAchievementsAsync`:
+
+1. Kullanıcının `UserProgress` satırı `SELECT ... FOR UPDATE` ile kilitlenir. Aynı kullanıcının değerlendirmeleri sırayla çalışır, paralel isteklerde çift kazanım olmaz.
+2. Bütün metrikler kayıtlı veriden **yeniden hesaplanır** (artırma yok). Su verisi PostgreSQL içinde güne göre gruplanır; tek tek su kayıtları belleğe alınmaz.
+3. Eksik başarımlar eklenir. Döngü, yeni açılanlar meta başarımları (`SECRET_ACHIEVEMENTS_*`, `SECRET_FIRST`) tetiklemediği ana kadar sürer. Bir başarım yalnızca kilitliyken değerlendirildiği için kendini sayamaz; sonsuz döngü oluşmaz.
+4. `TotalXp = SUM(XpReward)` (kazanılan başarımlar) olarak yeniden yazılır, seviye ve seviye ödülleri buna göre güncellenir. Tutarsızlık olsa bile bir sonraki değerlendirme düzeltir.
+5. Kazanılan başarım ve ödüller geri alınmaz.
+
+Ne zaman çalışır: kayıt, giriş, günün ilk token yenilemesi, su ekleme / senkronizasyon / düzenleme / silme, hedef değişikliği, hatırlatma ayarı, sağlık verisi, mobil olay ve `POST /api/achievements/me/evaluate`. Ana işlem (ör. su kaydı) başarılı olduktan sonra çalışır; başarım hesabı hata verirse loglanır, su kaydı geçerli kalır ve sonraki değerlendirme eksikleri tamamlar.
+
+Önemli kurallar:
+
+- **Günlük üst sınır:** Bir gün, başarım ilerlemesine en fazla o günün hedefi kadar katkı yapar. 5000 ml içilen gün hedef 2000 ise 2000 ml sayılır. Gerçek tüketim verisi değişmez.
+- **Bardak eşdeğeri:** `floor(sınırlı toplam ml / 250)`. Kayıt sayısı kullanılmaz.
+- **Geriye tarihli kayıt:** Su başarımlarında yalnızca, içildiği andan en fazla **72 saat** sonra kaydedilmiş su sayılır (`CreatedAt - ConsumedAt <= 72h`). Çevrimdışı senkronizasyon çalışır, tek seferde bir haftayı geriye doldurup seri kazanmak mümkün değildir.
+- **Seri:** `StatisticsService` ile aynı kural; her gün o günün kendi hedefiyle değerlendirilir. Açma koşulu "en uzun seri"dir, ilk kez 30 gün olan kullanıcı 2/3/7/10/14/21'i de alır. Kilitli seri başarımlarında `currentValue` güncel seriyi gösterir ve bugün henüz tamamlanmadıysa sıfırlanmaz.
+- **Alışkanlık saatleri** (kaydın kendi saat dilimine göre yerel saat, en az 100 ml): sabah başlangıcı = günün ilk kaydı 07:00–09:59; öğle 12:00–13:59; akşam 18:00–20:59; dengeli gün = 06:00–11:59, 12:00–17:59 ve 18:00–21:59 aralıklarının her birinde kayıt. 22:00 sonrası hiçbir başarıma katkı vermez.
+- **Aktif gün:** Başarılı oturum (sunucu kaydı), `APP_OPENED` veya o gün *kaydedilmiş* su. Aynı gün 100 kez açmak 1 gündür. `SECRET_RETURN_14_DAYS` iki aktif gün arasında en az 14 tam takvim günü boşluk ister; `SECRET_COMEBACK_3_DAYS` dönüş günü dahil 3 aktif gün ister.
+- **Tarih:** Olayların günü cihazdan alınmaz; sunucu saati + profil saat dilimiyle hesaplanır. Saat dilimi değişince eski su kayıtlarının `LocalDate` değeri değişmez.
+- **Geçmiş kullanıcılar:** Sistem eklenmeden önce kayıt olmuş kullanıcıların başarımları ilk girişte (veya `evaluate` çağrısında) su / hedef / ayar / sağlık geçmişinden hesaplanır. Kaydı olmayan mobil etkileşimler (onboarding, ekran açma vb.) kazanılmış sayılmaz. İşlem idempotenttir.
+
+### XP ve seviye
+
+`Threshold(level) = 5 * (level - 1)^2` toplam XP eşiğidir: Level 1 = 0, Level 2 = 5, Level 10 = 405, Level 50 = 12005, Level 100 = 49005 XP. Seviye 100'de sabitlenir, XP artmaya devam eder. Bir işlemde birden fazla seviye atlanabilir. Katalogdaki toplam XP 74.965'tir.
+
+```json
+{ "level": 13, "totalXp": 800, "currentLevelXp": 720, "nextLevelXp": 845, "xpIntoLevel": 80,
+  "xpToNextLevel": 45, "progressPercentage": 64.0, "maxLevel": 100, "isMaxLevel": false }
+```
+
+XP yalnızca sunucuda hesaplanır. İstemci XP, seviye veya başarım kodu gönderemez; her başarım tek seferliktir, bu yüzden sınırsız XP yolu yoktur. Hedef üzerindeki su ekstra XP vermez.
+
+### Ödüller
+
+| Kod | Tür | Koşul |
+|---|---|---|
+| `BOTTLE_SKY_BLUE` | BottleTheme | Level 5 |
+| `FRAME_AQUA` | ProfileFrame | Level 10 |
+| `ANIMATION_BUBBLES` | WaterAnimation | Level 15 |
+| `BOTTLE_FROST` | BottleTheme | Level 20 |
+| `FRAME_GLOW` | ProfileFrame | Level 30 |
+| `WATER_SPARKLE` | WaterAnimation | Level 40 |
+| `BOTTLE_GOLD` | BottleTheme | Level 50 |
+| `FRAME_AURORA` | ProfileFrame | Level 75 |
+| `BOTTLE_MYTHIC` | BottleTheme | Level 100 |
+| `MASCOT_SUNGLASSES` | MascotAccessory | `STREAK_7` |
+| `BADGE_SHINE` | BadgeEffect | `STREAK_30` |
+| `MASCOT_CROWN` | MascotAccessory | `STREAK_100` |
+
+`AssetKey` (ör. `bottle_sky_blue`) mobil uygulamadaki görsel/animasyon dosyasının adıdır; backend dosya saklamaz.
+
+### Mobil olay sözleşmesi
+
+`POST /api/achievements/events` (kullanıcı başına dakikada 30 istek, `RateLimiting:AchievementEventsPermitLimitPerMinute`)
+
+```json
+{ "clientEventId": "3f1c9a52-7c1e-4a8e-9a43-0f3b2b7c9d11", "eventType": "WEEKLY_REPORT_OPENED" }
+```
+
+| eventType | eventValue | Ne kadar sayılır |
+|---|---|---|
+| `APP_OPENED` | – | Günde 1 (aktif gün) |
+| `ONBOARDING_COMPLETED` | – | 1 kez |
+| `STATISTICS_OPENED`, `HISTORY_OPENED`, `MONTHLY_REPORT_OPENED`, `HEALTH_RECOMMENDATION_VIEWED` | – | Günde 1 |
+| `WEEKLY_REPORT_OPENED` | – | ISO haftası başına 1 |
+| `CALENDAR_DAY_VIEWED` | opsiyonel, geçmiş gün `yyyy-MM-dd` | Günde 1 |
+| `DARK_THEME_ENABLED`, `BOTTLE_EASTER_EGG_DISCOVERED` | – | 1 kez |
+| `BOTTLE_THEME_USED` | zorunlu tema anahtarı `[a-z0-9_-]{1,32}` | Tema başına 1 (en fazla 20 farklı tema) |
+
+Yanıttaki `status`: `Recorded` (kaydedildi ve başarımlar değerlendirildi, `gamification` dolu), `AlreadyProcessed` (aynı `clientEventId` daha önce geldi), `AlreadyCounted` (aynı dönem için zaten sayıldı). Üçü de `200` döner. Tanımsız tip, sunucuya özel `SESSION_STARTED` veya izin verilmeyen `eventValue` `400 invalidAchievementEvent` döner. İstemci olayları güvenilir kabul edilmez; yalnızca düşük riskli Discovery / Secret başarımlarında kullanılır. Su başarımları her zaman sunucudaki kayıtlardan hesaplanır.
+
+### Bildirimden su ekleme
+
+`AddIntakeRequest` (ve sync içindeki öğeler) opsiyonel `source` alanı alır: `"Manual"` (gönderilmezse varsayılan) veya `"ReminderNotification"`. Eski istemciler değişiklik yapmadan çalışır. Idempotency davranışı aynıdır. `IntakeResponse` artık `source` alanını içerir; `IntakeResultResponse` ve `SyncIntakesResponse` yanıtlarında `gamification` alanı (yeni başarımlar, ödüller, seviye) bulunur.
 
 ## React Native entegrasyon notları
 
@@ -298,6 +425,15 @@ Hata kodları: `userNotFound`, `emailAlreadyExists`, `invalidCredentials`, `inva
 
 **Grafikler**
 - `/api/statistics/weekly` ve `/monthly` yanıtlarındaki `days` dizisi her gün için bir eleman içerir (su içilmeyen günler `0`), grafiğe doğrudan bağlanabilir.
+
+**Başarımlar**
+- Uygulama açıldığında: `POST /api/achievements/events` (`APP_OPENED`), ardından `GET /api/achievements/me/unseen`. Gelen her başarım için animasyon oynatın, sonra `POST /api/achievements/me/seen` ile işaretleyin.
+- Su ekleme / sync / düzenleme yanıtındaki `gamification.newlyUnlocked` ve `newRewards` ile anında animasyon gösterebilirsiniz; `leveledUp` true ise seviye atlama ekranı gösterin. Aynı başarım `unseen` listesinde de görünür; `seen` ile işaretlenene kadar çift göstermemek için kimlikleri (`id`) takip edin.
+- Rozet ekranı: `GET /api/achievements?category=...` (`currentValue / targetValue / progressPercentage` hazır gelir). `code` değeri `null` olan öğeler kilitli gizli başarımlardır; kilitli placeholder gösterin.
+- Profil: `GET /api/achievements/me/summary` ve `GET /api/achievements/me/progress` (seviye çubuğu için hesap gerekmez).
+- Ekran olaylarını her ekran açılışında yeni bir `clientEventId` ile gönderebilirsiniz; aynı gün tekrarları sunucu sayar ama ilerlemeyi şişirmez. Ağ hatasında aynı `clientEventId` ile tekrar deneyin.
+- Bildirimdeki "İçtim" aksiyonu su eklerken `"source": "ReminderNotification"` göndermelidir.
+- Ödüller: `GET /api/achievements/me/rewards` → `assetKey` ile uygulama içindeki tema / çerçeve / animasyon dosyasını eşleyin.
 
 **Geliştirme ortamında bağlantı**
 - iOS simülatörü: `http://localhost:5290`

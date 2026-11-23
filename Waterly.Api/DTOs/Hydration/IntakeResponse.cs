@@ -1,3 +1,5 @@
+using Waterly.Api.Models;
+
 namespace Waterly.Api.DTOs.Hydration;
 
 public class IntakeResponse
@@ -9,6 +11,7 @@ public class IntakeResponse
     public DateOnly LocalDate { get; init; }
     public string LocalTime { get; init; } = string.Empty;
     public string TimeZone { get; init; } = string.Empty;
+    public IntakeSource Source { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 }
