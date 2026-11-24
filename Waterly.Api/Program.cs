@@ -230,7 +230,16 @@ app.MapHealthChecks("/health", new HealthCheckOptions
     }
 }).DisableRateLimiting();
 
-app.Run();
+var port = Environment.GetEnvironmentVariable("PORT");
+
+if (!string.IsNullOrWhiteSpace(port))
+{
+    app.Run($"http://0.0.0.0:{port}");
+}
+else
+{
+    app.Run();
+}
 
 // Makes the auto-generated Program class visible to the integration tests.
 public partial class Program;
