@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waterly}
       POSTGRES_DB: ${POSTGRES_DB:-waterly_dev}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5433}:5432"   # 5433 on the host so it does not clash with a local PostgreSQL
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -21,7 +21,7 @@ services:
       context: .
       target: migrator
     environment: &app-env
-      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=${POSTGRES_DB:-waterly_dev};Username=${POSTGRES_USER:-waterly};Password=${POSTGRES_PASSWORD:-waterly}
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=${POSTGRES_DB:-waterly_dev};Username=${POSTGRES_USER:-waterly};Password=${POSTGRES_PASSWORD:-waterly};GSS Encryption Mode=Disable
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be set in .env (at least 32 bytes)}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
     depends_on:

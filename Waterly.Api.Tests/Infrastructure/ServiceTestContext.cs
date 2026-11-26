@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Waterly.Api.Data;
@@ -82,6 +83,21 @@ public sealed class ServiceTestContext : IAsyncDisposable
             ClientEventId = Guid.NewGuid(),
             TimeZone = timeZone
         }, CancellationToken.None);
+
+    // Marks catalog achievements as earned without playing them out, to reach a level quickly.
+    // XP, level and level rewards follow on the next evaluation, exactly as in production.
+    public async Task GrantAchievementsAsync(Guid userId, params string[] codes)
+    {
+        var ids = await Db.Achievements.Where(a => codes.Contains(a.Code)).Select(a => a.Id).ToListAsync();
+        Db.UserAchievements.AddRange(ids.Select(id => new UserAchievement
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            AchievementId = id,
+            UnlockedAt = Clock.Now
+        }));
+        await Db.SaveChangesAsync();
+    }
 
     public ValueTask DisposeAsync() => Db.DisposeAsync();
 }

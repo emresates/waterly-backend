@@ -115,19 +115,20 @@ public class AchievementApiTests(DatabaseFixture database) : IDisposable
         Assert.Equal(73, summary.LockedAchievements);
         Assert.Equal(3.95m, summary.CompletionPercentage);
         Assert.Equal(160, summary.TotalXp);                            // 10 + 50 + 100
-        Assert.Equal(6, summary.Level);
+        Assert.Equal(2, summary.Level);                                // level 2 = 60 XP, level 3 = 170 XP
         Assert.Equal(1, summary.CommonUnlocked);
         Assert.Equal(2, summary.RareUnlocked);
         Assert.Equal(3, summary.UnseenAchievements);
 
         var progress = (await WaterlyApiFactory.ReadAsync<UserLevelResponse>(await client.GetAsync("/api/achievements/me/progress"))).Data!;
         Assert.Equal(160, progress.TotalXp);
-        Assert.Equal(125, progress.CurrentLevelXp);
-        Assert.Equal(180, progress.NextLevelXp);
-        Assert.Equal(63.6m, progress.ProgressPercentage);
+        Assert.Equal(60, progress.CurrentLevelXp);
+        Assert.Equal(170, progress.NextLevelXp);
+        Assert.Equal(90.9m, progress.ProgressPercentage);
 
         var rewards = (await WaterlyApiFactory.ReadAsync<List<RewardResponse>>(await client.GetAsync("/api/achievements/me/rewards"))).Data!;
-        Assert.Equal(["BOTTLE_CLASSIC", "BOTTLE_MINT", "BOTTLE_OCEAN", "BOTTLE_SKY_BLUE"], rewards.Select(r => r.Code).Order());
+        // Only the free starter themes: the first level reward (BOTTLE_SKY_BLUE) needs level 5.
+        Assert.Equal(["BOTTLE_CLASSIC", "BOTTLE_MINT", "BOTTLE_OCEAN"], rewards.Select(r => r.Code).Order());
     }
 
     [Fact]

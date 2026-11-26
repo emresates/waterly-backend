@@ -2,18 +2,22 @@ using Waterly.Api.DTOs.Achievements;
 
 namespace Waterly.Api.Helpers;
 
-// Total XP needed to reach a level: Threshold(level) = 5 * (level - 1)^2
-//   Level 1 = 0 XP, Level 2 = 5 XP, Level 10 = 405 XP, Level 50 = 12005 XP, Level 100 = 49005 XP.
+// Total XP needed to reach a level: Threshold(level) = round(60 * (level - 1)^1.5)
+//   Level 1 = 0 XP, Level 2 = 60 XP, Level 5 = 480 XP, Level 10 = 1620 XP, Level 20 = 4969 XP,
+//   Level 50 = 20580 XP, Level 100 = 59102 XP.
+// Steeper at the start than the old 5 * (level - 1)^2 curve, so the easy first-day achievements no
+// longer jump a new user to level 12, while level 100 stays reachable (the whole catalog is 74965 XP).
 // The level is capped at 100; XP keeps growing after that.
 public static class LevelCalculator
 {
     public const int MaxLevel = 100;
-    private const int Factor = 5;
+    private const double Factor = 60;
+    private const double Exponent = 1.5;
 
     public static int ThresholdFor(int level)
     {
         var clamped = Math.Clamp(level, 1, MaxLevel);
-        return Factor * (clamped - 1) * (clamped - 1);
+        return (int)Math.Round(Factor * Math.Pow(clamped - 1, Exponent), MidpointRounding.AwayFromZero);
     }
 
     public static int LevelFor(int totalXp)
@@ -23,8 +27,9 @@ public static class LevelCalculator
             return 1;
         }
 
-        // Start from the square-root estimate, then correct it with integer math so rounding can never be off by one.
-        var level = Math.Clamp((int)Math.Floor(Math.Sqrt(totalXp / (double)Factor)) + 1, 1, MaxLevel);
+        // Start from the inverse-formula estimate, then correct it against the exact integer thresholds so
+        // floating-point rounding can never be off by one.
+        var level = Math.Clamp((int)Math.Floor(Math.Pow(totalXp / Factor, 1 / Exponent)) + 1, 1, MaxLevel);
         while (level < MaxLevel && ThresholdFor(level + 1) <= totalXp)
         {
             level++;

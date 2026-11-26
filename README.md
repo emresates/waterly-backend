@@ -67,6 +67,34 @@ waterly-backend/
 - PostgreSQL 14+ (geliştirmede 18 ile test edildi)
 - EF Core CLI: `dotnet tool install --global dotnet-ef` (veya `dotnet tool update --global dotnet-ef`)
 
+### Hızlı yol: Docker Compose ile her şey
+
+PostgreSQL, migration'lar ve API tek komutla ayağa kalkar. .NET SDK veya yerel PostgreSQL gerekmez.
+
+```bash
+cp .env.example .env
+# .env içinde JWT_SIGNING_KEY değerini doldurun:  openssl rand -base64 48
+docker compose up -d --build
+```
+
+Sırasıyla şunlar olur: `db` (PostgreSQL 18) sağlıklı hale gelir → `migrator` tüm migration'ları uygulayıp çıkar → `api` başlar.
+
+| Ne | Adres |
+|---|---|
+| API | `http://localhost:5290` (`API_PORT`) |
+| Swagger | `http://localhost:5290/swagger` (`ASPNETCORE_ENVIRONMENT=Development` iken) |
+| Sağlık | `http://localhost:5290/health` |
+| PostgreSQL | `localhost:5433` (`DB_PORT`; yerel bir PostgreSQL ile 5432'de çakışmasın diye) |
+
+```bash
+docker compose logs -f api          # API logları
+docker compose up -d --build        # kod değişikliğinden sonra yeniden derle; yeni migration'lar otomatik uygulanır
+docker compose down                 # durdur (veri kalır)
+docker compose down -v              # durdur ve veritabanı verisini sil
+```
+
+Aşağıdaki adımlar, uygulamayı Docker olmadan doğrudan makinede çalıştırmak içindir.
+
 ### 2. PostgreSQL
 
 macOS (Homebrew):
@@ -349,7 +377,7 @@ Ne zaman çalışır: kayıt, giriş, günün ilk token yenilemesi, su ekleme / 
 
 ### XP ve seviye
 
-`Threshold(level) = 5 * (level - 1)^2` toplam XP eşiğidir: Level 1 = 0, Level 2 = 5, Level 10 = 405, Level 50 = 12005, Level 100 = 49005 XP. Seviye 100'de sabitlenir, XP artmaya devam eder. Bir işlemde birden fazla seviye atlanabilir. Katalogdaki toplam XP 74.965'tir.
+`Threshold(level) = round(60 * (level - 1)^1.5)` toplam XP eşiğidir: Level 1 = 0, Level 2 = 60, Level 5 = 480, Level 10 = 1620, Level 20 = 4969, Level 50 = 20580, Level 100 = 59102 XP. Seviye 100'de sabitlenir, XP artmaya devam eder. Bir işlemde birden fazla seviye atlanabilir. Katalogdaki toplam XP 74.965'tir.
 
 ```json
 { "level": 13, "totalXp": 800, "currentLevelXp": 720, "nextLevelXp": 845, "xpIntoLevel": 80,

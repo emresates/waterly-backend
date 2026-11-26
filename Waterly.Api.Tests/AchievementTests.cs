@@ -60,14 +60,16 @@ public class AchievementTests(DatabaseFixture database)
 
     [Theory]
     [InlineData(0, 1)]
-    [InlineData(4, 1)]
-    [InlineData(5, 2)]
-    [InlineData(404, 9)]
-    [InlineData(405, 10)]
-    [InlineData(12004, 49)]
-    [InlineData(12005, 50)]
-    [InlineData(49004, 99)]
-    [InlineData(49005, 100)]
+    [InlineData(59, 1)]
+    [InlineData(60, 2)]
+    [InlineData(479, 4)]
+    [InlineData(480, 5)]
+    [InlineData(1619, 9)]
+    [InlineData(1620, 10)]
+    [InlineData(20579, 49)]
+    [InlineData(20580, 50)]
+    [InlineData(59101, 99)]
+    [InlineData(59102, 100)]
     [InlineData(1_000_000, 100)]
     public void Level_FollowsTheThresholdFormula(int totalXp, int expectedLevel)
     {
@@ -78,12 +80,12 @@ public class AchievementTests(DatabaseFixture database)
     public void LevelResponse_ContainsEverythingTheAppNeeds()
     {
         var level = LevelCalculator.Build(800);
-        Assert.Equal(13, level.Level);
-        Assert.Equal(720, level.CurrentLevelXp);   // 5 * 12^2
-        Assert.Equal(845, level.NextLevelXp);      // 5 * 13^2
-        Assert.Equal(80, level.XpIntoLevel);
-        Assert.Equal(45, level.XpToNextLevel);
-        Assert.Equal(64.0m, level.ProgressPercentage);
+        Assert.Equal(6, level.Level);
+        Assert.Equal(671, level.CurrentLevelXp);   // round(60 * 5^1.5)
+        Assert.Equal(882, level.NextLevelXp);      // round(60 * 6^1.5)
+        Assert.Equal(129, level.XpIntoLevel);
+        Assert.Equal(82, level.XpToNextLevel);
+        Assert.Equal(61.1m, level.ProgressPercentage);
         Assert.False(level.IsMaxLevel);
 
         var max = LevelCalculator.Build(60000);
@@ -110,11 +112,12 @@ public class AchievementTests(DatabaseFixture database)
         Assert.Equal(["FIRST_DROP", "FIRST_GLASS", "GLASSES_1"], gamification.NewlyUnlocked.Select(a => a.Code).Order());
         Assert.All(gamification.NewlyUnlocked, a => Assert.True(a.IsUnlocked));
 
-        // WELCOME 10 + FIRST_DROP 10 + FIRST_GLASS 15 + GLASSES_1 10
+        // WELCOME 10 + FIRST_DROP 10 + FIRST_GLASS 15 + GLASSES_1 10 = 45 XP: still level 1 (level 2 = 60 XP),
+        // so a first glass alone no longer levels a new user up.
         Assert.Equal(45, gamification.Progress.TotalXp);
-        Assert.Equal(4, gamification.Progress.Level);
-        Assert.Equal(2, gamification.PreviousLevel);
-        Assert.True(gamification.LeveledUp);
+        Assert.Equal(1, gamification.Progress.Level);
+        Assert.Equal(1, gamification.PreviousLevel);
+        Assert.False(gamification.LeveledUp);
         await AssertXpIsConsistentAsync(context, userId, 45);
     }
 
@@ -529,13 +532,17 @@ public class AchievementTests(DatabaseFixture database)
     {
         await using var context = new ServiceTestContext(database, Now);
         var userId = await context.RegisterUserAsync();
+        // Earlier progress (STREAK_14 300 + GOAL_DAYS_30 400; neither unlocks a reward itself), so this intake
+        // crosses level 5.
+        await context.GrantAchievementsAsync(userId, "STREAK_14", "GOAL_DAYS_30");
 
         var result = await context.AddIntakeAsync(userId, 2000);
 
         // WELCOME 10, FIRST_DROP 10, FIRST_GLASS 15, FIRST_DAY_500 20, FIRST_HALF_GOAL 20, FIRST_GOAL 50,
-        // TOTAL_ML_1000 20, GLASSES_1 10, GLASSES_5 25 = 180 XP = level 7 (threshold 180).
-        Assert.Equal(180, result.Gamification!.Progress.TotalXp);
-        Assert.Equal(7, result.Gamification.Progress.Level);
+        // TOTAL_ML_1000 20, GLASSES_1 10, GLASSES_5 25 = 180 XP, + 700 granted, and the 11 achievements now
+        // earned unlock SECRET_ACHIEVEMENTS_10 (200) and with it SECRET_FIRST (100) = 1180 XP = level 8 (1111..1357).
+        Assert.Equal(1180, result.Gamification!.Progress.TotalXp);
+        Assert.Equal(8, result.Gamification.Progress.Level);
         Assert.Equal(["BOTTLE_SKY_BLUE"], result.Gamification.NewRewards.Select(r => r.Code));
         Assert.Equal("bottle_sky_blue", result.Gamification.NewRewards[0].AssetKey);
 

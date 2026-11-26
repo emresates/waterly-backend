@@ -176,7 +176,8 @@ public partial class AchievementFeatureTests(DatabaseFixture database) : IDispos
         Assert.Equal(["BOTTLE_CLASSIC", "BOTTLE_MINT", "BOTTLE_OCEAN"], before.Where(c => c.IsUnlocked).Select(c => c.Code).Order());
         Assert.All(before.Where(c => c.IsStarter), c => Assert.True(c.IsUnlocked));
 
-        await context.AddIntakeAsync(userId, 2000);   // 180 XP -> level 7 -> BOTTLE_SKY_BLUE (level 5)
+        await context.GrantAchievementsAsync(userId, "STREAK_14", "GOAL_DAYS_30");   // 700 XP of earlier progress
+        await context.AddIntakeAsync(userId, 2000);   // + 180 XP (+ secrets it triggers) -> level 8 -> BOTTLE_SKY_BLUE (level 5)
 
         var saved = await SavePreferencesAsync(context, userId, ColorScheme.System, "BOTTLE_SKY_BLUE");
         Assert.Equal("BOTTLE_SKY_BLUE", saved.BottleTheme.Code);
